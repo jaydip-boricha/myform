@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,6 +64,7 @@ export default function Home() {
   const [editingText, setEditingText] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -159,6 +160,9 @@ export default function Home() {
       await addDoc(collection(db, "content"), dataToSave);
 
       form.reset();
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+      }
       setIsSaved(true);
       toast({
         title: "Success!",
@@ -283,6 +287,7 @@ export default function Home() {
                           type="file"
                           accept="image/*"
                           className="file:text-primary"
+                          ref={imageInputRef}
                           onChange={(e) => field.onChange(e.target.files)}
                         />
                       </FormControl>
@@ -408,3 +413,5 @@ export default function Home() {
     </main>
   );
 }
+
+    
