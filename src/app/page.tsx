@@ -63,6 +63,10 @@ export default function Home() {
       form.reset({ content: "" });
 
       setIsSaved(true);
+      toast({
+        title: "Success!",
+        description: "Your content has been saved successfully.",
+      });
       setTimeout(() => setIsSaved(false), 2500);
     } catch (error) {
       console.error("Error saving content:", error);
