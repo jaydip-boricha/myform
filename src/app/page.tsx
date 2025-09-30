@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { sanitizeUserInput } from "@/ai/flows/sanitize-user-input";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import {
   collection,
   addDoc,
@@ -17,6 +18,13 @@ import {
   updateDoc,
   Timestamp,
 } from "firebase/firestore";
+import {
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
+import { v4 as uuidv4 } from "uuid";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,26 +43,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Check, Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 
 const FormSchema = z.object({
   content: z.string().min(1, {
     message: "Please enter some content.",
   }),
+  image: z.any().optional(),
 });
 
 interface ContentItem {
   id: string;
   text: string;
+  imageUrl?: string;
+  imagePath?: string;
   createdAt: Timestamp;
 }
 
 export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [contentList, setContentList] = useState<ContentItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -66,6 +79,7 @@ export default function Home() {
     resolver: zodResolver(FormSchema),
     defaultValues: {
       content: "",
+      image: undefined,
     },
   });
 
@@ -98,19 +112,51 @@ export default function Home() {
   async function onSubmit(values: z.infer<typeof FormSchema>) {
     setIsSaving(true);
     setIsSaved(false);
+    setUploadProgress(null);
 
     try {
       const { sanitizedInput } = await sanitizeUserInput({
         userInput: values.content,
       });
 
+      let imageUrl: string | undefined = undefined;
+      let imagePath: string | undefined = undefined;
+      const file = values.image?.[0];
+
+      if (file) {
+        imagePath = `images/${uuidv4()}-${file.name}`;
+        const storageRef = ref(storage, imagePath);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              const progress =
+                (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(progress);
+            },
+            (error) => {
+              console.error("Upload failed:", error);
+              reject(error);
+            },
+            async () => {
+              imageUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve();
+            }
+          );
+        });
+      }
+
       await addDoc(collection(db, "content"), {
         text: sanitizedInput,
         createdAt: new Date(),
+        imageUrl: imageUrl,
+        imagePath: imagePath,
       });
 
-      form.reset({ content: "" });
-
+      form.reset();
+      setUploadProgress(null);
       setIsSaved(true);
       toast({
         title: "Success!",
@@ -130,9 +176,13 @@ export default function Home() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(item: ContentItem) {
     try {
-      await deleteDoc(doc(db, "content", id));
+      if (item.imagePath) {
+        const imageRef = ref(storage, item.imagePath);
+        await deleteObject(imageRef);
+      }
+      await deleteDoc(doc(db, "content", item.id));
       toast({
         title: "Deleted!",
         description: "The content has been successfully deleted.",
@@ -191,7 +241,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-full items-center justify-center bg-background p-4 sm:p-6 md:p-8">
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-2xl space-y-8">
         <Card className="w-full shadow-xl rounded-xl">
           <CardHeader className="text-center">
             <CardTitle className="text-3xl font-headline">FormFlow</CardTitle>
@@ -222,6 +272,29 @@ export default function Home() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="image"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Image (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          className="file:text-primary"
+                          onChange={(e) => field.onChange(e.target.files)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                {uploadProgress !== null && (
+                  <Progress value={uploadProgress} className="w-full" />
+                )}
+
                 <Button
                   type="submit"
                   className="w-full h-12 text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary transition-all duration-300 ease-in-out"
@@ -230,7 +303,7 @@ export default function Home() {
                   {isSaving ? (
                     <>
                       <Loader2 className="animate-spin" />
-                      <span>Saving...</span>
+                      <span>{uploadProgress !== null ? `Uploading: ${Math.round(uploadProgress)}%` : 'Saving...'}</span>
                     </>
                   ) : isSaved ? (
                     <>
@@ -238,7 +311,10 @@ export default function Home() {
                       <span>Saved!</span>
                     </>
                   ) : (
+                    <>
+                    <Upload />
                     <span>Save Content</span>
+                    </>
                   )}
                 </Button>
               </form>
@@ -251,17 +327,28 @@ export default function Home() {
           <Separator />
           {isLoading ? (
             <div className="space-y-4">
-              <Skeleton className="h-16 w-full" />
-              <Skeleton className="h-16 w-full" />
-              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
             </div>
           ) : contentList.length > 0 ? (
             <div className="space-y-4">
               {contentList.map((item) => (
                 <Card
                   key={item.id}
-                  className="flex items-center justify-between p-4"
+                  className="flex items-start gap-4 p-4"
                 >
+                  {item.imageUrl && (
+                     <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0">
+                        <Image
+                            src={item.imageUrl}
+                            alt="Uploaded content"
+                            fill
+                            className="rounded-md object-cover"
+                        />
+                     </div>
+                  )}
+                  <div className="flex-1 flex flex-col h-full">
                   {editingId === item.id ? (
                     <div className="flex-1 flex items-center gap-2">
                       <Input
@@ -290,8 +377,8 @@ export default function Home() {
                     </div>
                   ) : (
                     <>
-                      <p className="flex-1 pr-4 break-words">{item.text}</p>
-                      <div className="flex items-center">
+                      <p className="flex-1 pr-4 break-words mb-2">{item.text}</p>
+                      <div className="flex items-center mt-auto">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -303,7 +390,7 @@ export default function Home() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDelete(item.id)}
+                          onClick={() => handleDelete(item)}
                           aria-label="Delete content"
                         >
                           <Trash2 className="h-5 w-5 text-destructive" />
@@ -311,6 +398,7 @@ export default function Home() {
                       </div>
                     </>
                   )}
+                  </div>
                 </Card>
               ))}
             </div>
