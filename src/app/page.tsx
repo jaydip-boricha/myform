@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { sanitizeUserInput } from "@/ai/flows/sanitize-user-input";
+import { deleteImage } from "@/ai/flows/delete-image-flow";
 import { db } from "@/lib/firebase";
 import {
   collection,
@@ -36,7 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Loader2, Pencil, Trash2, Upload } from "lucide-react";
+import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -62,9 +63,11 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [editingImage, setEditingImage] = useState<File | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const editImageInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -100,10 +103,7 @@ export default function Home() {
     return () => unsubscribe();
   }, [toast]);
 
-  async function onSubmit(values: z.infer<typeof FormSchema>) {
-    setIsSaving(true);
-    setIsSaved(false);
-
+  const uploadToCloudinary = async (file: File) => {
     const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
     const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
 
@@ -114,9 +114,28 @@ export default function Home() {
         title: "Configuration Error",
         description: "Cloudinary is not configured. Please check your environment variables.",
       });
-      setIsSaving(false);
-      return;
+      return null;
     }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", uploadPreset);
+    
+    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData,
+    });
+
+    if (!response.ok) {
+        throw new Error('Image upload failed');
+    }
+
+    return response.json();
+  }
+
+  async function onSubmit(values: z.infer<typeof FormSchema>) {
+    setIsSaving(true);
+    setIsSaved(false);
 
     try {
       const { sanitizedInput } = await sanitizeUserInput({
@@ -127,21 +146,14 @@ export default function Home() {
       const file = values.image?.[0];
 
       if (file) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("upload_preset", uploadPreset);
-        
-        const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            throw new Error('Image upload failed');
+        const data = await uploadToCloudinary(file);
+        if (data) {
+          imageUrl = data.secure_url;
+        } else {
+          // Stop submission if upload fails
+          setIsSaving(false);
+          return;
         }
-
-        const data = await response.json();
-        imageUrl = data.secure_url;
       }
 
       const dataToSave: {
@@ -184,12 +196,17 @@ export default function Home() {
 
   async function handleDelete(item: ContentItem) {
     try {
-      // Note: This only deletes the database record, not the image from Cloudinary.
-      // Deleting from Cloudinary requires a secure backend call.
+      if (item.imageUrl) {
+        // Extract public ID from URL
+        const publicId = item.imageUrl.split('/').pop()?.split('.')[0];
+        if (publicId) {
+          await deleteImage({ publicId });
+        }
+      }
       await deleteDoc(doc(db, "content", item.id));
       toast({
         title: "Deleted!",
-        description: "The content has been successfully deleted.",
+        description: "The content and associated image have been deleted.",
       });
     } catch (error) {
       console.error("Error deleting content:", error);
@@ -205,9 +222,10 @@ export default function Home() {
   function handleEdit(item: ContentItem) {
     setEditingId(item.id);
     setEditingText(item.text);
+    setEditingImage(null);
   }
 
-  async function handleUpdate(id: string) {
+  async function handleUpdate(id: string, currentItem: ContentItem) {
     if (editingText.trim() === "") {
       toast({
         variant: "destructive",
@@ -221,11 +239,35 @@ export default function Home() {
       const { sanitizedInput } = await sanitizeUserInput({
         userInput: editingText,
       });
+      
       const docRef = doc(db, "content", id);
-      await updateDoc(docRef, { text: sanitizedInput });
+      const dataToUpdate: { text: string; imageUrl?: string } = { text: sanitizedInput };
+
+      // Check if a new image is being uploaded
+      if (editingImage) {
+        // Delete the old image from Cloudinary if it exists
+        if (currentItem.imageUrl) {
+            const oldPublicId = currentItem.imageUrl.split('/').pop()?.split('.')[0];
+            if (oldPublicId) {
+                await deleteImage({ publicId: oldPublicId });
+            }
+        }
+        
+        // Upload the new image
+        const uploadData = await uploadToCloudinary(editingImage);
+        if (uploadData) {
+            dataToUpdate.imageUrl = uploadData.secure_url;
+        } else {
+            setIsUpdating(false);
+            return; // Stop if new image upload fails
+        }
+      }
+
+      await updateDoc(docRef, dataToUpdate);
 
       setEditingId(null);
       setEditingText("");
+      setEditingImage(null);
       toast({
         title: "Updated!",
         description: "The content has been successfully updated.",
@@ -337,69 +379,93 @@ export default function Home() {
               {contentList.map((item) => (
                 <Card
                   key={item.id}
-                  className="flex items-start gap-4 p-4"
+                  className="p-4"
                 >
-                  {item.imageUrl && (
-                     <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0">
-                        <Image
-                            src={item.imageUrl}
-                            alt="Uploaded content"
-                            fill
-                            className="rounded-md object-cover"
-                        />
-                     </div>
-                  )}
-                  <div className="flex-1 flex flex-col h-full">
                   {editingId === item.id ? (
-                    <div className="flex-1 flex items-center gap-2">
+                    <div className="flex flex-col gap-4">
                       <Input
                         value={editingText}
                         onChange={(e) => setEditingText(e.target.value)}
                         className="h-9"
                       />
-                      <Button
-                        size="sm"
-                        onClick={() => handleUpdate(item.id)}
-                        disabled={isUpdating}
-                      >
-                        {isUpdating ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          "Save"
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => editImageInputRef.current?.click()}
+                        >
+                          <ImagePlus className="mr-2 h-4 w-4" />
+                          {editingImage ? "Change Image" : "Add Image"}
+                        </Button>
+                        <Input 
+                          type="file"
+                          accept="image/*"
+                          ref={editImageInputRef}
+                          className="hidden"
+                          onChange={(e) => setEditingImage(e.target.files ? e.target.files[0] : null)}
+                        />
+                        {editingImage && (
+                          <span className="text-sm text-muted-foreground truncate max-w-xs">
+                            {editingImage.name}
+                          </span>
                         )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditingId(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="flex-1 pr-4 break-words mb-2">{item.text}</p>
-                      <div className="flex items-center mt-auto">
+                      </div>
+                      <div className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(item)}
-                          aria-label="Edit content"
+                          size="sm"
+                          onClick={() => setEditingId(null)}
                         >
-                          <Pencil className="h-5 w-5 text-blue-500" />
+                          Cancel
                         </Button>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(item)}
-                          aria-label="Delete content"
+                          size="sm"
+                          onClick={() => handleUpdate(item.id, item)}
+                          disabled={isUpdating}
                         >
-                          <Trash2 className="h-5 w-5 text-destructive" />
+                          {isUpdating ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            "Save"
+                          )}
                         </Button>
                       </div>
-                    </>
+                    </div>
+                  ) : (
+                     <div className="flex items-start gap-4">
+                        {item.imageUrl && (
+                          <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0">
+                              <Image
+                                  src={item.imageUrl}
+                                  alt="Uploaded content"
+                                  fill
+                                  className="rounded-md object-cover"
+                              />
+                          </div>
+                        )}
+                        <div className="flex-1 flex flex-col h-full">
+                          <p className="flex-1 pr-4 break-words mb-2">{item.text}</p>
+                          <div className="flex items-center mt-auto">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(item)}
+                              aria-label="Edit content"
+                            >
+                              <Pencil className="h-5 w-5 text-blue-500" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(item)}
+                              aria-label="Delete content"
+                            >
+                              <Trash2 className="h-5 w-5 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                     </div>
                   )}
-                  </div>
                 </Card>
               ))}
             </div>
