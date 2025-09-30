@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { sanitizeUserInput } from "@/ai/flows/sanitize-user-input";
-import { db, storage } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
   collection,
   addDoc,
@@ -18,13 +18,6 @@ import {
   updateDoc,
   Timestamp,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
-import { v4 as uuidv4 } from "uuid";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +40,6 @@ import { Check, Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 
 const FormSchema = z.object({
   content: z.string().min(1, {
@@ -60,14 +52,12 @@ interface ContentItem {
   id: string;
   text: string;
   imageUrl?: string;
-  imagePath?: string;
   createdAt: Timestamp;
 }
 
 export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [contentList, setContentList] = useState<ContentItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -112,7 +102,20 @@ export default function Home() {
   async function onSubmit(values: z.infer<typeof FormSchema>) {
     setIsSaving(true);
     setIsSaved(false);
-    setUploadProgress(null);
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+
+    if (!cloudName || !uploadPreset) {
+      console.error("Cloudinary credentials are not set in .env file.");
+      toast({
+        variant: "destructive",
+        title: "Configuration Error",
+        description: "Cloudinary is not configured. Please check your environment variables.",
+      });
+      setIsSaving(false);
+      return;
+    }
 
     try {
       const { sanitizedInput } = await sanitizeUserInput({
@@ -120,43 +123,33 @@ export default function Home() {
       });
 
       let imageUrl: string | undefined = undefined;
-      let imagePath: string | undefined = undefined;
       const file = values.image?.[0];
 
       if (file) {
-        imagePath = `images/${uuidv4()}-${file.name}`;
-        const storageRef = ref(storage, imagePath);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-
-        await new Promise<void>((resolve, reject) => {
-          uploadTask.on(
-            "state_changed",
-            (snapshot) => {
-              const progress =
-                (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              setUploadProgress(progress);
-            },
-            (error) => {
-              console.error("Upload failed:", error);
-              reject(error);
-            },
-            async () => {
-              imageUrl = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve();
-            }
-          );
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", uploadPreset);
+        
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+            method: 'POST',
+            body: formData,
         });
+
+        if (!response.ok) {
+            throw new Error('Image upload failed');
+        }
+
+        const data = await response.json();
+        imageUrl = data.secure_url;
       }
 
       await addDoc(collection(db, "content"), {
         text: sanitizedInput,
         createdAt: new Date(),
         imageUrl: imageUrl,
-        imagePath: imagePath,
       });
 
       form.reset();
-      setUploadProgress(null);
       setIsSaved(true);
       toast({
         title: "Success!",
@@ -178,10 +171,8 @@ export default function Home() {
 
   async function handleDelete(item: ContentItem) {
     try {
-      if (item.imagePath) {
-        const imageRef = ref(storage, item.imagePath);
-        await deleteObject(imageRef);
-      }
+      // Note: This only deletes the database record, not the image from Cloudinary.
+      // Deleting from Cloudinary requires a secure backend call.
       await deleteDoc(doc(db, "content", item.id));
       toast({
         title: "Deleted!",
@@ -291,10 +282,6 @@ export default function Home() {
                   )}
                 />
                 
-                {uploadProgress !== null && (
-                  <Progress value={uploadProgress} className="w-full" />
-                )}
-
                 <Button
                   type="submit"
                   className="w-full h-12 text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary transition-all duration-300 ease-in-out"
@@ -303,7 +290,7 @@ export default function Home() {
                   {isSaving ? (
                     <>
                       <Loader2 className="animate-spin" />
-                      <span>{uploadProgress !== null ? `Uploading: ${Math.round(uploadProgress)}%` : 'Saving...'}</span>
+                      <span>Saving...</span>
                     </>
                   ) : isSaved ? (
                     <>
