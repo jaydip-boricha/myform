@@ -37,8 +37,23 @@ const sanitizeUserInputFlow = ai.defineFlow(
     inputSchema: SanitizeUserInputInputSchema,
     outputSchema: SanitizeUserInputOutputSchema,
   },
-  async input => {
-    const {output} = await sanitizeUserInputPrompt(input);
-    return output!;
+  async (input, streamingCallback) => {
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const {output} = await sanitizeUserInputPrompt(input);
+        return output!;
+      } catch (e) {
+        lastError = e;
+        console.log(`Attempt ${i + 1} failed, retrying...`);
+        // Wait for a short duration before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+      }
+    }
+    
+    // If all retries fail, throw the last captured error
+    throw lastError;
   }
 );
