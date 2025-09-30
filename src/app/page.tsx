@@ -14,6 +14,7 @@ import {
   onSnapshot,
   doc,
   deleteDoc,
+  updateDoc,
   Timestamp,
 } from "firebase/firestore";
 
@@ -34,7 +35,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Loader2, Trash2 } from "lucide-react";
+import { Check, Loader2, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -56,6 +57,9 @@ export default function Home() {
   const [isSaved, setIsSaved] = useState(false);
   const [contentList, setContentList] = useState<ContentItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -144,6 +148,47 @@ export default function Home() {
     }
   }
 
+  function handleEdit(item: ContentItem) {
+    setEditingId(item.id);
+    setEditingText(item.text);
+  }
+
+  async function handleUpdate(id: string) {
+    if (editingText.trim() === "") {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Content cannot be empty.",
+      });
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      const { sanitizedInput } = await sanitizeUserInput({
+        userInput: editingText,
+      });
+      const docRef = doc(db, "content", id);
+      await updateDoc(docRef, { text: sanitizedInput });
+
+      setEditingId(null);
+      setEditingText("");
+      toast({
+        title: "Updated!",
+        description: "The content has been successfully updated.",
+      });
+    } catch (error) {
+      console.error("Error updating content:", error);
+      toast({
+        variant: "destructive",
+        title: "An Error Occurred",
+        description:
+          "There was a problem updating your content. Please try again.",
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
   return (
     <main className="flex min-h-full items-center justify-center bg-background p-4 sm:p-6 md:p-8">
       <div className="w-full max-w-md space-y-8">
@@ -217,15 +262,55 @@ export default function Home() {
                   key={item.id}
                   className="flex items-center justify-between p-4"
                 >
-                  <p className="flex-1 pr-4 break-words">{item.text}</p>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDelete(item.id)}
-                    aria-label="Delete content"
-                  >
-                    <Trash2 className="h-5 w-5 text-destructive" />
-                  </Button>
+                  {editingId === item.id ? (
+                    <div className="flex-1 flex items-center gap-2">
+                      <Input
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        className="h-9"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => handleUpdate(item.id)}
+                        disabled={isUpdating}
+                      >
+                        {isUpdating ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          "Save"
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="flex-1 pr-4 break-words">{item.text}</p>
+                      <div className="flex items-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(item)}
+                          aria-label="Edit content"
+                        >
+                          <Pencil className="h-5 w-5 text-blue-500" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(item.id)}
+                          aria-label="Delete content"
+                        >
+                          <Trash2 className="h-5 w-5 text-destructive" />
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </Card>
               ))}
             </div>
