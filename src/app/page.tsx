@@ -443,9 +443,9 @@ export default function Home() {
                               />
                           </div>
                         )}
-                        <div className="flex-1 flex flex-col h-full">
-                          <p className="flex-1 pr-4 break-words mb-2">{item.text}</p>
-                          <div className="flex items-center mt-auto">
+                        <div className="flex-1 flex flex-col justify-center">
+                          <p className="pr-4 break-words mb-2">{item.text}</p>
+                          <div className="flex items-center">
                             <Button
                               variant="ghost"
                               size="icon"
