@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { sanitizeUserInput } from "@/ai/flows/sanitize-user-input";
+import { db } from "@/lib/firebase";
+import { collection, addDoc } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,17 +46,6 @@ export default function Home() {
     },
   });
 
-  useEffect(() => {
-    try {
-      const savedContent = localStorage.getItem("formflow-content");
-      if (savedContent) {
-        form.setValue("content", savedContent);
-      }
-    } catch (error) {
-      console.error("Could not access local storage:", error);
-    }
-  }, [form]);
-
   async function onSubmit(values: z.infer<typeof FormSchema>) {
     setIsSaving(true);
     setIsSaved(false);
@@ -64,8 +55,12 @@ export default function Home() {
         userInput: values.content,
       });
 
-      localStorage.setItem("formflow-content", sanitizedInput);
-      form.reset({ content: sanitizedInput });
+      await addDoc(collection(db, "content"), {
+        text: sanitizedInput,
+        createdAt: new Date(),
+      });
+
+      form.reset({ content: "" });
 
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2500);
@@ -88,7 +83,7 @@ export default function Home() {
         <CardHeader className="text-center">
           <CardTitle className="text-3xl font-headline">FormFlow</CardTitle>
           <CardDescription>
-            Enter your text, we'll sanitize and save it.
+            Enter your text, we'll sanitize and save it to the database.
           </CardDescription>
         </CardHeader>
         <CardContent>
