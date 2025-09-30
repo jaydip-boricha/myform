@@ -198,9 +198,9 @@ export default function Home() {
     try {
       if (item.imageUrl) {
         // Extract public ID from URL
-        const publicId = item.imageUrl.split('/').pop()?.split('.')[0];
-        if (publicId) {
-          await deleteImage({ publicId });
+        const publicIdWithFolder = item.imageUrl.split('/').slice(-2).join('/').split('.')[0];
+        if (publicIdWithFolder) {
+          await deleteImage({ publicId: publicIdWithFolder });
         }
       }
       await deleteDoc(doc(db, "content", item.id));
@@ -247,7 +247,7 @@ export default function Home() {
       if (editingImage) {
         // Delete the old image from Cloudinary if it exists
         if (currentItem.imageUrl) {
-            const oldPublicId = currentItem.imageUrl.split('/').pop()?.split('.')[0];
+            const oldPublicId = currentItem.imageUrl.split('/').slice(-2).join('/').split('.')[0];
             if (oldPublicId) {
                 await deleteImage({ publicId: oldPublicId });
             }
@@ -432,7 +432,7 @@ export default function Home() {
                       </div>
                     </div>
                   ) : (
-                     <div className="flex items-start gap-4">
+                     <div className="flex items-center gap-4">
                         {item.imageUrl && (
                           <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
                               <Image
