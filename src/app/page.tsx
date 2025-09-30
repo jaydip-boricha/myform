@@ -143,11 +143,20 @@ export default function Home() {
         imageUrl = data.secure_url;
       }
 
-      await addDoc(collection(db, "content"), {
+      const dataToSave: {
+        text: string;
+        createdAt: Date;
+        imageUrl?: string;
+      } = {
         text: sanitizedInput,
         createdAt: new Date(),
-        imageUrl: imageUrl,
-      });
+      };
+
+      if (imageUrl) {
+        dataToSave.imageUrl = imageUrl;
+      }
+
+      await addDoc(collection(db, "content"), dataToSave);
 
       form.reset();
       setIsSaved(true);
