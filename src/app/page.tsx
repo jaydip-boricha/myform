@@ -434,12 +434,12 @@ export default function Home() {
                   ) : (
                      <div className="flex items-start gap-4">
                         {item.imageUrl && (
-                          <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0">
+                          <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
                               <Image
                                   src={item.imageUrl}
                                   alt="Uploaded content"
                                   fill
-                                  className="rounded-md object-cover"
+                                  className="rounded-md object-contain"
                               />
                           </div>
                         )}
@@ -479,5 +479,3 @@ export default function Home() {
     </main>
   );
 }
-
-    
