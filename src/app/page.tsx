@@ -106,10 +106,12 @@ export default function Home() {
 
   useEffect(() => {
     if (authLoading) {
+      setIsLoading(true);
       return; 
     }
     if (!user) {
-      router.push('/login');
+      setContentList([]);
+      setIsLoading(false);
       return;
     }
 
@@ -136,7 +138,7 @@ export default function Home() {
     );
 
     return () => unsubscribe();
-  }, [user, authLoading, router, toast]);
+  }, [user, authLoading, toast]);
 
   const uploadToCloudinary = async (file: File) => {
     const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -170,7 +172,12 @@ export default function Home() {
 
   async function onSubmit(values: z.infer<typeof FormSchema>) {
     if (!user) {
-        toast({ variant: 'destructive', title: 'Not authenticated' });
+        toast({ 
+            title: 'Please Login',
+            description: 'You need to be logged in to save content.',
+            variant: 'destructive'
+        });
+        router.push('/login?redirect=/');
         return;
     }
     setIsSaving(true);
@@ -412,7 +419,7 @@ export default function Home() {
       await reauthenticateWithCredential(user, credential);
       
       setRequiresReauth(false);
-      await attemptDeleteAccount();
+      await performDeleteAccount();
 
     } catch (error: any) {
       console.error("Re-authentication failed:", error);
@@ -427,46 +434,42 @@ export default function Home() {
     }
   };
 
-  if (authLoading || !user) {
-    return (
-      <main className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
-      </main>
-    );
-  }
-
   return (
     <>
       <main className="flex min-h-full flex-col items-center bg-background p-4 sm:p-6 md:p-8">
         <div className="w-full max-w-2xl space-y-8">
-          <header className="flex w-full items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              Welcome, <span className="font-medium text-foreground">{user.displayName || user.email}</span>
-            </div>
-             <TooltipProvider>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={handleLogout}>
-                  <LogOut className="h-4 w-4" />
-                  <span>Logout</span>
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      onClick={() => setIsDeleteDialogOpen(true)}
-                      disabled={isDeletingAccount}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="sr-only">Delete Account</span>
+          <header className="flex w-full items-center justify-between min-h-[40px]">
+            {user && (
+              <>
+                <div className="text-sm text-muted-foreground">
+                  Welcome, <span className="font-medium text-foreground">{user.displayName || user.email}</span>
+                </div>
+                <TooltipProvider>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={handleLogout}>
+                      <LogOut className="h-4 w-4" />
+                      <span>Logout</span>
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Delete Account</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => setIsDeleteDialogOpen(true)}
+                          disabled={isDeletingAccount}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete Account</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Delete Account</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </TooltipProvider>
+              </>
+            )}
           </header>
 
           <Card className="w-full shadow-xl rounded-xl">
@@ -546,116 +549,118 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <div className="space-y-4">
-            <h2 className="text-2xl font-headline text-center">Saved Content</h2>
-            <Separator />
-            {isLoading ? (
-              <div className="space-y-4">
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ) : contentList.length > 0 ? (
-              <div className="space-y-4">
-                {contentList.map((item) => (
-                  <Card
-                    key={item.id}
-                    className="p-4"
-                  >
-                    {editingId === item.id ? (
-                      <div className="flex flex-col gap-4">
-                        <Input
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          className="h-9"
-                        />
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => editImageInputRef.current?.click()}
-                          >
-                            <ImagePlus className="mr-2 h-4 w-4" />
-                            {editingImage ? "Change Image" : "Add Image"}
-                          </Button>
-                          <Input 
-                            type="file"
-                            accept="image/*"
-                            ref={editImageInputRef}
-                            className="hidden"
-                            onChange={(e) => setEditingImage(e.target.files ? e.target.files[0] : null)}
+          {user && (
+            <div className="space-y-4">
+              <h2 className="text-2xl font-headline text-center">Saved Content</h2>
+              <Separator />
+              {isLoading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                </div>
+              ) : contentList.length > 0 ? (
+                <div className="space-y-4">
+                  {contentList.map((item) => (
+                    <Card
+                      key={item.id}
+                      className="p-4"
+                    >
+                      {editingId === item.id ? (
+                        <div className="flex flex-col gap-4">
+                          <Input
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            className="h-9"
                           />
-                          {editingImage && (
-                            <span className="text-sm text-muted-foreground truncate max-w-xs">
-                              {editingImage.name}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setEditingId(null)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleUpdate(item.id, item)}
-                            disabled={isUpdating}
-                          >
-                            {isUpdating ? (
-                              <Loader2 className="animate-spin" />
-                            ) : (
-                              "Save"
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => editImageInputRef.current?.click()}
+                            >
+                              <ImagePlus className="mr-2 h-4 w-4" />
+                              {editingImage ? "Change Image" : "Add Image"}
+                            </Button>
+                            <Input 
+                              type="file"
+                              accept="image/*"
+                              ref={editImageInputRef}
+                              className="hidden"
+                              onChange={(e) => setEditingImage(e.target.files ? e.target.files[0] : null)}
+                            />
+                            {editingImage && (
+                              <span className="text-sm text-muted-foreground truncate max-w-xs">
+                                {editingImage.name}
+                              </span>
                             )}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                       <div className="flex items-center gap-4">
-                          {item.imageUrl && (
-                             <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
-                                 <Image
-                                     src={item.imageUrl}
-                                     alt="Uploaded content"
-                                     fill
-                                     className="rounded-md object-contain"
-                                 />
-                             </div>
-                          )}
-                          <div className="flex flex-col justify-center">
-                            <p className="pr-4 break-words mb-2">{item.text}</p>
-                            <div className="flex items-center">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleEdit(item)}
-                                aria-label="Edit content"
-                              >
-                                <Pencil className="h-5 w-5 text-blue-500" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDelete(item)}
-                                aria-label="Delete content"
-                              >
-                                <Trash2 className="h-5 w-5 text-destructive" />
-                              </Button>
-                            </div>
                           </div>
-                       </div>
-                    )}
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <p className="text-center text-muted-foreground">
-                No content saved yet.
-              </p>
-            )}
-          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditingId(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => handleUpdate(item.id, item)}
+                              disabled={isUpdating}
+                            >
+                              {isUpdating ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                "Save"
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                         <div className="flex items-center gap-4">
+                            {item.imageUrl && (
+                               <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
+                                   <Image
+                                       src={item.imageUrl}
+                                       alt="Uploaded content"
+                                       fill
+                                       className="rounded-md object-contain"
+                                   />
+                               </div>
+                            )}
+                            <div className="flex flex-col justify-center">
+                              <p className="pr-4 break-words mb-2">{item.text}</p>
+                              <div className="flex items-center">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleEdit(item)}
+                                  aria-label="Edit content"
+                                >
+                                  <Pencil className="h-5 w-5 text-blue-500" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDelete(item)}
+                                  aria-label="Delete content"
+                                >
+                                  <Trash2 className="h-5 w-5 text-destructive" />
+                                </Button>
+                              </div>
+                            </div>
+                         </div>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-muted-foreground">
+                  No content saved yet.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </main>
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
