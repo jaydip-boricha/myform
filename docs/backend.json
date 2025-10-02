@@ -1,26 +1,5 @@
 {
   "entities": {
-    "UserProfile": {
-      "title": "User Profile",
-      "description": "A user's profile stored in Firestore.",
-      "type": "object",
-      "properties": {
-        "uid": {
-          "type": "string",
-          "description": "The unique ID of the user."
-        },
-        "email": {
-          "type": "string",
-          "format": "email",
-          "description": "The email address of the user."
-        },
-        "displayName": {
-          "type": "string",
-          "description": "The display name of the user."
-        }
-      },
-      "required": ["uid", "email", "displayName"]
-    },
     "Content": {
       "title": "Content",
       "description": "User-generated content.",
@@ -52,12 +31,6 @@
     "providers": ["email"]
   },
   "firestore": {
-    "/users/{userId}": {
-      "schema": {
-        "$ref": "#/entities/UserProfile"
-      },
-      "description": "Collection of user profile documents."
-    },
     "/content/{contentId}": {
       "schema": {
         "$ref": "#/entities/Content"

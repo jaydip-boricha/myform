@@ -6,8 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,13 +72,6 @@ export default function RegisterPage() {
         // Update Firebase Auth profile
         await updateProfile(user, {
           displayName: values.username,
-        });
-
-        // Create user document in Firestore
-        await setDoc(doc(db, 'users', user.uid), {
-          uid: user.uid,
-          displayName: values.username,
-          email: values.email,
         });
       }
 
