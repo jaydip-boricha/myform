@@ -20,8 +20,10 @@ import {
   updateDoc,
   Timestamp,
   where,
+  getDocs,
+  writeBatch,
 } from "firebase/firestore";
-import { signOut } from 'firebase/auth';
+import { signOut, deleteUser } from 'firebase/auth';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 
@@ -42,10 +44,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus, LogOut } from "lucide-react";
+import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus, LogOut, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const FormSchema = z.object({
   content: z.string().min(1, {
@@ -73,6 +85,8 @@ export default function Home() {
   const [editingText, setEditingText] = useState("");
   const [editingImage, setEditingImage] = useState<File | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const { toast } = useToast();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editImageInputRef = useRef<HTMLInputElement>(null);
@@ -329,6 +343,59 @@ export default function Home() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+
+    setIsDeletingAccount(true);
+    try {
+      // 1. Delete all user's content from Firestore and images from Cloudinary
+      const contentQuery = query(collection(db, "content"), where("userId", "==", user.uid));
+      const querySnapshot = await getDocs(contentQuery);
+      
+      const batch = writeBatch(db);
+      const imageDeletionPromises: Promise<any>[] = [];
+
+      querySnapshot.forEach(docSnap => {
+        const item = docSnap.data() as ContentItem;
+        batch.delete(docSnap.ref);
+        if (item.imageUrl) {
+          const publicIdWithFolder = item.imageUrl.split('/').slice(-2).join('/').split('.')[0];
+          if (publicIdWithFolder) {
+            imageDeletionPromises.push(deleteImage({ publicId: publicIdWithFolder }));
+          }
+        }
+      });
+      
+      await Promise.all(imageDeletionPromises);
+      await batch.commit();
+
+      // 2. Delete the user account from Firebase Auth
+      await deleteUser(user);
+      
+      toast({
+        title: 'Account Deleted',
+        description: 'Your account and all associated data have been permanently deleted.',
+      });
+      router.push('/login');
+
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      let description = 'An unexpected error occurred. Please try again.';
+      if (error.code === 'auth/requires-recent-login') {
+        description = 'This is a sensitive operation. Please log out and log back in before deleting your account.';
+      }
+      toast({
+        variant: 'destructive',
+        title: 'Account Deletion Failed',
+        description,
+      });
+    } finally {
+      setIsDeletingAccount(false);
+      setIsDeleteDialogOpen(false);
+    }
+  };
+
+
   if (authLoading || !user) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -338,206 +405,249 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-full flex-col items-center bg-background p-4 sm:p-6 md:p-8">
-      <div className="w-full max-w-2xl space-y-8">
-        <header className="flex w-full items-center justify-between">
-          <div className="text-sm text-muted-foreground">
-            Welcome, <span className="font-medium text-foreground">{user.displayName || user.email}</span>
-          </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
-        </header>
-
-        <Card className="w-full shadow-xl rounded-xl">
-          <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-headline">FormFlow</CardTitle>
-            <CardDescription>
-              Enter your text, we'll sanitize and save it to the database.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-6"
+    <>
+      <main className="flex min-h-full flex-col items-center bg-background p-4 sm:p-6 md:p-8">
+        <div className="w-full max-w-2xl space-y-8">
+          <header className="flex w-full items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              Welcome, <span className="font-medium text-foreground">{user.displayName || user.email}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                disabled={isDeletingAccount}
               >
-                <FormField
-                  control={form.control}
-                  name="content"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="sr-only">Your Content</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="What's on your mind?"
-                          {...field}
-                          className="h-12 text-base"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="image"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Image (Optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="file"
-                          accept="image/*"
-                          className="file:text-primary"
-                          ref={imageInputRef}
-                          onChange={(e) => field.onChange(e.target.files)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <Button
-                  type="submit"
-                  className="w-full h-12 text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary transition-all duration-300 ease-in-out"
-                  disabled={isSaving || isSaved}
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : isSaved ? (
-                    <>
-                      <Check />
-                      <span>Saved!</span>
-                    </>
-                  ) : (
-                    <>
-                    <Upload />
-                    <span>Save Content</span>
-                    </>
-                  )}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Account
+              </Button>
+            </div>
+          </header>
 
-        <div className="space-y-4">
-          <h2 className="text-2xl font-headline text-center">Saved Content</h2>
-          <Separator />
-          {isLoading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ) : contentList.length > 0 ? (
-            <div className="space-y-4">
-              {contentList.map((item) => (
-                <Card
-                  key={item.id}
-                  className="p-4"
+          <Card className="w-full shadow-xl rounded-xl">
+            <CardHeader className="text-center">
+              <CardTitle className="text-3xl font-headline">FormFlow</CardTitle>
+              <CardDescription>
+                Enter your text, we'll sanitize and save it to the database.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-6"
                 >
-                  {editingId === item.id ? (
-                    <div className="flex flex-col gap-4">
-                      <Input
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        className="h-9"
-                      />
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => editImageInputRef.current?.click()}
-                        >
-                          <ImagePlus className="mr-2 h-4 w-4" />
-                          {editingImage ? "Change Image" : "Add Image"}
-                        </Button>
-                        <Input 
-                          type="file"
-                          accept="image/*"
-                          ref={editImageInputRef}
-                          className="hidden"
-                          onChange={(e) => setEditingImage(e.target.files ? e.target.files[0] : null)}
+                  <FormField
+                    control={form.control}
+                    name="content"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="sr-only">Your Content</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="What's on your mind?"
+                            {...field}
+                            className="h-12 text-base"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="image"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Image (Optional)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            className="file:text-primary"
+                            ref={imageInputRef}
+                            onChange={(e) => field.onChange(e.target.files)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary transition-all duration-300 ease-in-out"
+                    disabled={isSaving || isSaved}
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : isSaved ? (
+                      <>
+                        <Check />
+                        <span>Saved!</span>
+                      </>
+                    ) : (
+                      <>
+                      <Upload />
+                      <span>Save Content</span>
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-4">
+            <h2 className="text-2xl font-headline text-center">Saved Content</h2>
+            <Separator />
+            {isLoading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : contentList.length > 0 ? (
+              <div className="space-y-4">
+                {contentList.map((item) => (
+                  <Card
+                    key={item.id}
+                    className="p-4"
+                  >
+                    {editingId === item.id ? (
+                      <div className="flex flex-col gap-4">
+                        <Input
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          className="h-9"
                         />
-                        {editingImage && (
-                          <span className="text-sm text-muted-foreground truncate max-w-xs">
-                            {editingImage.name}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingId(null)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleUpdate(item.id, item)}
-                          disabled={isUpdating}
-                        >
-                          {isUpdating ? (
-                            <Loader2 className="animate-spin" />
-                          ) : (
-                            "Save"
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => editImageInputRef.current?.click()}
+                          >
+                            <ImagePlus className="mr-2 h-4 w-4" />
+                            {editingImage ? "Change Image" : "Add Image"}
+                          </Button>
+                          <Input 
+                            type="file"
+                            accept="image/*"
+                            ref={editImageInputRef}
+                            className="hidden"
+                            onChange={(e) => setEditingImage(e.target.files ? e.target.files[0] : null)}
+                          />
+                          {editingImage && (
+                            <span className="text-sm text-muted-foreground truncate max-w-xs">
+                              {editingImage.name}
+                            </span>
                           )}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                     <div className="flex items-center gap-4">
-                        {item.imageUrl && (
-                           <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
-                               <Image
-                                   src={item.imageUrl}
-                                   alt="Uploaded content"
-                                   fill
-                                   className="rounded-md object-contain"
-                               />
-                           </div>
-                        )}
-                        <div className="flex flex-col justify-center">
-                          <p className="pr-4 break-words mb-2">{item.text}</p>
-                          <div className="flex items-center">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleEdit(item)}
-                              aria-label="Edit content"
-                            >
-                              <Pencil className="h-5 w-5 text-blue-500" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(item)}
-                              aria-label="Delete content"
-                            >
-                              <Trash2 className="h-5 w-5 text-destructive" />
-                            </Button>
-                          </div>
                         </div>
-                     </div>
-                  )}
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <p className="text-center text-muted-foreground">
-              No content saved yet.
-            </p>
-          )}
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingId(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleUpdate(item.id, item)}
+                            disabled={isUpdating}
+                          >
+                            {isUpdating ? (
+                              <Loader2 className="animate-spin" />
+                            ) : (
+                              "Save"
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                       <div className="flex items-center gap-4">
+                          {item.imageUrl && (
+                             <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
+                                 <Image
+                                     src={item.imageUrl}
+                                     alt="Uploaded content"
+                                     fill
+                                     className="rounded-md object-contain"
+                                 />
+                             </div>
+                          )}
+                          <div className="flex flex-col justify-center">
+                            <p className="pr-4 break-words mb-2">{item.text}</p>
+                            <div className="flex items-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleEdit(item)}
+                                aria-label="Edit content"
+                              >
+                                <Pencil className="h-5 w-5 text-blue-500" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDelete(item)}
+                                aria-label="Delete content"
+                              >
+                                <Trash2 className="h-5 w-5 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                       </div>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground">
+                No content saved yet.
+              </p>
+            )}
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="text-destructive h-6 w-6"/>
+              Are you absolutely sure?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete your account
+              and remove all of your content and images from our servers.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingAccount}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccount}
+              disabled={isDeletingAccount}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isDeletingAccount ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                "Yes, delete my account"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
+
+    
