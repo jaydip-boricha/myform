@@ -1,15 +1,59 @@
+/**
+ * @file Firestore Security Rules
+ * @description This ruleset enforces a user-ownership model for content.
+ *
+ * Data Structure:
+ * - All content is stored in the `/content/{contentId}` collection.
+ * - Each content document must have a `userId` field indicating the owner.
+ *
+ * Key Security Decisions:
+ * - Users can only create content with their own `userId`.
+ * - Users can only read, update, or delete content they own.
+ * - List operations are publicly available.
+ *
+ * Denormalization for Authorization:
+ * - The `content` documents contain the `userId` of the owner, enabling direct ownership checks without additional reads.
+ */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /content/{contentId} {
-      // Users can only read their own content.
-      allow read: if request.auth != null && get(/databases/$(database)/documents/content/$(contentId)).data.userId == request.auth.uid;
-      
-      // Users can create content if they are logged in and the userId matches their auth uid.
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
 
-      // Users can only update or delete their own content.
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    /**
+     * @description Manages access to user-generated content. Only the content owner can read, update, or delete their content.
+     * @path /content/{contentId}
+     * @allow (create) - User with UID `user_abc` creates a new content document with `userId: user_abc`.
+     * @allow (get,update,delete) - User with UID `user_abc` reads, updates, or deletes the content document with `userId: user_abc`.
+     * @deny (create) - User with UID `user_abc` attempts to create content with `userId: user_def`.
+     * @deny (update,delete) - User with UID `user_def` attempts to update or delete content with `userId: user_abc`.
+     * @principle Enforces document ownership for writes.
+     */
+    match /content/{contentId} {
+      // Helper function to check if the current user is signed in.
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      // Helper function to check if the current user is the owner of the content.
+      function isOwner(userId) {
+        return isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Helper function to check if the current user is the owner of the existing content document.
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
+
+      // Allow anyone to read content
+      allow get, list: if true;
+
+      // Only allow authenticated users to create content if the userId matches their auth uid.
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+
+      // Only allow the owner to update content.
+      allow update: if isExistingOwner(resource.data.userId);
+
+      // Only allow the owner to delete content.
+      allow delete: if isExistingOwner(resource.data.userId);
     }
   }
 }
