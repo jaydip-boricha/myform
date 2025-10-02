@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -44,7 +45,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus, LogOut, ShieldAlert } from "lucide-react";
+import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus, LogOut, ShieldAlert, LogIn } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -439,7 +440,7 @@ export default function Home() {
       <main className="flex min-h-full flex-col items-center bg-background p-4 sm:p-6 md:p-8">
         <div className="w-full max-w-2xl space-y-8">
           <header className="flex w-full items-center justify-between min-h-[40px]">
-            {user && (
+            {user ? (
               <>
                 <div className="text-sm text-muted-foreground">
                   Welcome, <span className="font-medium text-foreground">{user.displayName || user.email}</span>
@@ -469,6 +470,17 @@ export default function Home() {
                   </div>
                 </TooltipProvider>
               </>
+            ) : (
+              !authLoading && (
+                <div className="w-full flex justify-end">
+                    <Button asChild variant="ghost" size="sm">
+                        <Link href="/login">
+                            <LogIn className="h-4 w-4 mr-2" />
+                            Login
+                        </Link>
+                    </Button>
+                </div>
+              )
             )}
           </header>
 
