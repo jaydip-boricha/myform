@@ -23,7 +23,7 @@ import {
   getDocs,
   writeBatch,
 } from "firebase/firestore";
-import { signOut, deleteUser } from 'firebase/auth';
+import { signOut, deleteUser, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 
@@ -89,6 +89,9 @@ export default function Home() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [requiresReauth, setRequiresReauth] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
   const { toast } = useToast();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editImageInputRef = useRef<HTMLInputElement>(null);
@@ -345,7 +348,7 @@ export default function Home() {
     }
   };
 
-  const handleDeleteAccount = async () => {
+  const performDeleteAccount = async () => {
     if (!user) return;
 
     setIsDeletingAccount(true);
@@ -382,21 +385,45 @@ export default function Home() {
 
     } catch (error: any) {
       console.error('Error deleting account:', error);
-      let description = 'An unexpected error occurred. Please try again.';
       if (error.code === 'auth/requires-recent-login') {
-        description = 'This is a sensitive operation. Please log out and log back in before deleting your account.';
+        setIsDeleteDialogOpen(false);
+        setRequiresReauth(true);
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Account Deletion Failed',
+          description: error.message || 'An unexpected error occurred. Please try again.',
+        });
       }
-      toast({
-        variant: 'destructive',
-        title: 'Account Deletion Failed',
-        description,
-      });
     } finally {
       setIsDeletingAccount(false);
-      setIsDeleteDialogOpen(false);
     }
   };
+  
+  const handleReauthenticateAndDelete = async () => {
+    if (!user || !user.email || !reauthPassword) return;
 
+    setIsReauthenticating(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, reauthPassword);
+      await reauthenticateWithCredential(user, credential);
+      
+      // Re-authentication successful, now we can delete the account
+      setRequiresReauth(false);
+      await performDeleteAccount();
+
+    } catch (error: any) {
+      console.error("Re-authentication failed:", error);
+      toast({
+        variant: 'destructive',
+        title: 'Authentication Failed',
+        description: 'The password you entered was incorrect. Please try again.',
+      });
+    } finally {
+      setIsReauthenticating(false);
+      setReauthPassword("");
+    }
+  };
 
   if (authLoading || !user) {
     return (
@@ -644,7 +671,7 @@ export default function Home() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeletingAccount}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDeleteAccount}
+              onClick={performDeleteAccount}
               disabled={isDeletingAccount}
               className="bg-destructive hover:bg-destructive/90"
             >
@@ -652,6 +679,44 @@ export default function Home() {
                 <Loader2 className="animate-spin" />
               ) : (
                 "Yes, delete my account"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={requiresReauth} onOpenChange={setRequiresReauth}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="text-destructive h-6 w-6"/>
+              Please Re-authenticate
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This is a sensitive operation. For your security, please enter your password again to confirm you want to delete your account.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <FormLabel htmlFor="reauth-password">Password</FormLabel>
+            <Input 
+              id="reauth-password"
+              type="password"
+              value={reauthPassword}
+              onChange={(e) => setReauthPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isReauthenticating} onClick={() => setRequiresReauth(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReauthenticateAndDelete}
+              disabled={isReauthenticating || !reauthPassword}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isReauthenticating ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                "Confirm & Delete Account"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
