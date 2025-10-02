@@ -63,19 +63,18 @@ export default function RegisterPage() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       
-      // Update the user's profile with the username
       if (userCredential.user) {
         await updateProfile(userCredential.user, {
           displayName: values.username,
         });
       }
 
-      await signOut(auth); // Sign the user out immediately after creation
+      await signOut(auth); 
       toast({
         title: 'Registration Successful',
         description: 'Your account has been created. Please sign in.',
       });
-      router.push('/login'); // Redirect to the login page
+      router.push('/login'); 
     } catch (error: any) {
       console.error('Registration Error:', error);
       toast({
