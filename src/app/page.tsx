@@ -416,17 +416,10 @@ export default function Home() {
             </div>
              <TooltipProvider>
               <div className="flex items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handleLogout}>
-                      <LogOut className="h-4 w-4" />
-                      <span className="sr-only">Logout</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Logout</p>
-                  </TooltipContent>
-                </Tooltip>
+                <Button variant="ghost" size="sm" onClick={handleLogout}>
+                  <LogOut className="h-4 w-4" />
+                  <span>Logout</span>
+                </Button>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
