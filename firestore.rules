@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /content/{contentId} {
+      // Users can only read their own content.
+      allow read: if request.auth != null && get(/databases/$(database)/documents/content/$(contentId)).data.userId == request.auth.uid;
+      
+      // Users can create content if they are logged in and the userId matches their auth uid.
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+
+      // Users can only update or delete their own content.
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}
