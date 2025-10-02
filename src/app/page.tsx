@@ -342,7 +342,7 @@ export default function Home() {
       <div className="w-full max-w-2xl space-y-8">
         <header className="flex w-full items-center justify-between">
           <div className="text-sm text-muted-foreground">
-            Logged in as: <span className="font-medium text-foreground">{user.email}</span>
+            Welcome, <span className="font-medium text-foreground">{user.displayName || user.email}</span>
           </div>
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
@@ -496,16 +496,16 @@ export default function Home() {
                   ) : (
                      <div className="flex items-center gap-4">
                         {item.imageUrl && (
-                          <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
-                              <Image
-                                  src={item.imageUrl}
-                                  alt="Uploaded content"
-                                  fill
-                                  className="rounded-md object-contain"
-                              />
-                          </div>
+                           <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
+                               <Image
+                                   src={item.imageUrl}
+                                   alt="Uploaded content"
+                                   fill
+                                   className="rounded-md object-contain"
+                               />
+                           </div>
                         )}
-                        <div className="flex-1 flex flex-col justify-center">
+                        <div className="flex flex-col justify-center">
                           <p className="pr-4 break-words mb-2">{item.text}</p>
                           <div className="flex items-center">
                             <Button

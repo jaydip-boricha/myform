@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique ID of the user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The email address of the user."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The display name of the user."
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "Content": {
+      "title": "Content",
+      "description": "User-generated content.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The text of the content."
+        },
+        "imageUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "The URL of the image associated with the content."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the content was created."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who created the content."
+        }
+      },
+      "required": ["text", "createdAt", "userId"]
+    }
+  },
+  "auth": {
+    "providers": ["email"]
+  },
+  "firestore": {
+    "/content/{contentId}": {
+      "schema": {
+        "$ref": "#/entities/Content"
+      },
+      "description": "Collection of user-generated content."
+    }
+  }
+}
