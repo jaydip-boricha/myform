@@ -5,8 +5,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
-import { createUserWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,26 +62,42 @@ export default function RegisterPage() {
   async function onSubmit(values: z.infer<typeof FormSchema>) {
     setIsLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-      
-      if (userCredential.user) {
-        await updateProfile(userCredential.user, {
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        values.email,
+        values.password
+      );
+      const user = userCredential.user;
+
+      if (user) {
+        // Update Firebase Auth profile
+        await updateProfile(user, {
           displayName: values.username,
+        });
+
+        // Create user document in Firestore
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          displayName: values.username,
+          email: values.email,
         });
       }
 
-      await signOut(auth); 
+      // We sign the user out to force them to log in.
+      await auth.signOut();
+
       toast({
         title: 'Registration Successful',
         description: 'Your account has been created. Please sign in.',
       });
-      router.push('/login'); 
+      router.push('/login');
     } catch (error: any) {
       console.error('Registration Error:', error);
       toast({
         variant: 'destructive',
         title: 'Registration Failed',
-        description: error.message || 'An unexpected error occurred. Please try again.',
+        description:
+          error.message || 'An unexpected error occurred. Please try again.',
       });
     } finally {
       setIsLoading(false);
@@ -91,10 +108,10 @@ export default function RegisterPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-headline">Create an Account</CardTitle>
-          <CardDescription>
-            Get started with FormFlow today.
-          </CardDescription>
+          <CardTitle className="text-3xl font-headline">
+            Create an Account
+          </CardTitle>
+          <CardDescription>Get started with FormFlow today.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -182,7 +199,10 @@ export default function RegisterPage() {
           <div className="mt-6 text-center text-sm">
             <p>
               Already have an account?{' '}
-              <Link href="/login" className="font-medium text-primary hover:underline">
+              <Link
+                href="/login"
+                className="font-medium text-primary hover:underline"
+              >
                 Sign in
               </Link>
             </p>
