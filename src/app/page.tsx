@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -7,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { sanitizeUserInput } from "@/ai/flows/sanitize-user-input";
 import { deleteImage } from "@/ai/flows/delete-image-flow";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
 import {
   collection,
   addDoc,
@@ -18,7 +19,11 @@ import {
   deleteDoc,
   updateDoc,
   Timestamp,
+  where,
 } from "firebase/firestore";
+import { signOut } from 'firebase/auth';
+import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +42,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus } from "lucide-react";
+import { Check, Loader2, Pencil, Trash2, Upload, ImagePlus, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,9 +59,12 @@ interface ContentItem {
   text: string;
   imageUrl?: string;
   createdAt: Timestamp;
+  userId: string;
 }
 
 export default function Home() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [contentList, setContentList] = useState<ContentItem[]>([]);
@@ -78,7 +86,15 @@ export default function Home() {
   });
 
   useEffect(() => {
-    const q = query(collection(db, "content"), orderBy("createdAt", "desc"));
+    if (authLoading) {
+      return; 
+    }
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    const q = query(collection(db, "content"), where("userId", "==", user.uid), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(
       q,
       (querySnapshot) => {
@@ -101,7 +117,7 @@ export default function Home() {
     );
 
     return () => unsubscribe();
-  }, [toast]);
+  }, [user, authLoading, router, toast]);
 
   const uploadToCloudinary = async (file: File) => {
     const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -134,6 +150,10 @@ export default function Home() {
   }
 
   async function onSubmit(values: z.infer<typeof FormSchema>) {
+    if (!user) {
+        toast({ variant: 'destructive', title: 'Not authenticated' });
+        return;
+    }
     setIsSaving(true);
     setIsSaved(false);
 
@@ -150,7 +170,6 @@ export default function Home() {
         if (data) {
           imageUrl = data.secure_url;
         } else {
-          // Stop submission if upload fails
           setIsSaving(false);
           return;
         }
@@ -159,10 +178,12 @@ export default function Home() {
       const dataToSave: {
         text: string;
         createdAt: Date;
+        userId: string;
         imageUrl?: string;
       } = {
         text: sanitizedInput,
         createdAt: new Date(),
+        userId: user.uid,
       };
 
       if (imageUrl) {
@@ -195,9 +216,12 @@ export default function Home() {
   }
 
   async function handleDelete(item: ContentItem) {
+    if (item.userId !== user?.uid) {
+        toast({ variant: 'destructive', title: 'Unauthorized' });
+        return;
+    }
     try {
       if (item.imageUrl) {
-        // Extract public ID from URL
         const publicIdWithFolder = item.imageUrl.split('/').slice(-2).join('/').split('.')[0];
         if (publicIdWithFolder) {
           await deleteImage({ publicId: publicIdWithFolder });
@@ -218,14 +242,22 @@ export default function Home() {
       });
     }
   }
-
+  
   function handleEdit(item: ContentItem) {
+    if (item.userId !== user?.uid) {
+        toast({ variant: 'destructive', title: 'Unauthorized' });
+        return;
+    }
     setEditingId(item.id);
     setEditingText(item.text);
     setEditingImage(null);
   }
 
   async function handleUpdate(id: string, currentItem: ContentItem) {
+     if (currentItem.userId !== user?.uid) {
+        toast({ variant: 'destructive', title: 'Unauthorized' });
+        return;
+    }
     if (editingText.trim() === "") {
       toast({
         variant: "destructive",
@@ -243,9 +275,7 @@ export default function Home() {
       const docRef = doc(db, "content", id);
       const dataToUpdate: { text: string; imageUrl?: string } = { text: sanitizedInput };
 
-      // Check if a new image is being uploaded
       if (editingImage) {
-        // Delete the old image from Cloudinary if it exists
         if (currentItem.imageUrl) {
             const oldPublicId = currentItem.imageUrl.split('/').slice(-2).join('/').split('.')[0];
             if (oldPublicId) {
@@ -253,13 +283,12 @@ export default function Home() {
             }
         }
         
-        // Upload the new image
         const uploadData = await uploadToCloudinary(editingImage);
         if (uploadData) {
             dataToUpdate.imageUrl = uploadData.secure_url;
         } else {
             setIsUpdating(false);
-            return; // Stop if new image upload fails
+            return;
         }
       }
 
@@ -285,9 +314,42 @@ export default function Home() {
     }
   }
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.push('/login');
+      toast({ title: 'Logged Out', description: 'You have been successfully logged out.' });
+    } catch (error) {
+      console.error('Logout Error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Logout Failed',
+        description: 'There was a problem logging out. Please try again.',
+      });
+    }
+  };
+
+  if (authLoading || !user) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+      </main>
+    );
+  }
+
   return (
-    <main className="flex min-h-full items-center justify-center bg-background p-4 sm:p-6 md:p-8">
+    <main className="flex min-h-full flex-col items-center bg-background p-4 sm:p-6 md:p-8">
       <div className="w-full max-w-2xl space-y-8">
+        <header className="flex w-full items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            Logged in as: <span className="font-medium text-foreground">{user.email}</span>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Logout
+          </Button>
+        </header>
+
         <Card className="w-full shadow-xl rounded-xl">
           <CardHeader className="text-center">
             <CardTitle className="text-3xl font-headline">FormFlow</CardTitle>
