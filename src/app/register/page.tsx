@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,11 +60,12 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, values.email, values.password);
+      await signOut(auth); // Sign the user out immediately after creation
       toast({
         title: 'Registration Successful',
-        description: "You've been successfully registered and logged in.",
+        description: 'Your account has been created. Please sign in.',
       });
-      router.push('/');
+      router.push('/login'); // Redirect to the login page
     } catch (error: any) {
       console.error('Registration Error:', error);
       toast({
