@@ -350,39 +350,42 @@ export default function Home() {
 
   const performDeleteAccount = async () => {
     if (!user) return;
+  
+    // 1. Delete all user's content from Firestore and images from Cloudinary
+    const contentQuery = query(collection(db, "content"), where("userId", "==", user.uid));
+    const querySnapshot = await getDocs(contentQuery);
+    
+    const batch = writeBatch(db);
+    const imageDeletionPromises: Promise<any>[] = [];
+  
+    querySnapshot.forEach(docSnap => {
+      const item = docSnap.data() as ContentItem;
+      batch.delete(docSnap.ref);
+      if (item.imageUrl) {
+        const publicIdWithFolder = item.imageUrl.split('/').slice(-2).join('/').split('.')[0];
+        if (publicIdWithFolder) {
+          imageDeletionPromises.push(deleteImage({ publicId: publicIdWithFolder }));
+        }
+      }
+    });
+    
+    await Promise.all(imageDeletionPromises);
+    await batch.commit();
+  
+    // 2. Delete the user account from Firebase Auth
+    await deleteUser(user);
+    
+    toast({
+      title: 'Account Deleted',
+      description: 'Your account and all associated data have been permanently deleted.',
+    });
+    router.push('/login');
+  };
 
+  const attemptDeleteAccount = async () => {
     setIsDeletingAccount(true);
     try {
-      // 1. Delete all user's content from Firestore and images from Cloudinary
-      const contentQuery = query(collection(db, "content"), where("userId", "==", user.uid));
-      const querySnapshot = await getDocs(contentQuery);
-      
-      const batch = writeBatch(db);
-      const imageDeletionPromises: Promise<any>[] = [];
-
-      querySnapshot.forEach(docSnap => {
-        const item = docSnap.data() as ContentItem;
-        batch.delete(docSnap.ref);
-        if (item.imageUrl) {
-          const publicIdWithFolder = item.imageUrl.split('/').slice(-2).join('/').split('.')[0];
-          if (publicIdWithFolder) {
-            imageDeletionPromises.push(deleteImage({ publicId: publicIdWithFolder }));
-          }
-        }
-      });
-      
-      await Promise.all(imageDeletionPromises);
-      await batch.commit();
-
-      // 2. Delete the user account from Firebase Auth
-      await deleteUser(user);
-      
-      toast({
-        title: 'Account Deleted',
-        description: 'Your account and all associated data have been permanently deleted.',
-      });
-      router.push('/login');
-
+      await performDeleteAccount();
     } catch (error: any) {
       console.error('Error deleting account:', error);
       if (error.code === 'auth/requires-recent-login') {
@@ -398,7 +401,7 @@ export default function Home() {
     } finally {
       setIsDeletingAccount(false);
     }
-  };
+  }
   
   const handleReauthenticateAndDelete = async () => {
     if (!user || !user.email || !reauthPassword) return;
@@ -408,9 +411,8 @@ export default function Home() {
       const credential = EmailAuthProvider.credential(user.email, reauthPassword);
       await reauthenticateWithCredential(user, credential);
       
-      // Re-authentication successful, now we can delete the account
       setRequiresReauth(false);
-      await performDeleteAccount();
+      await attemptDeleteAccount();
 
     } catch (error: any) {
       console.error("Re-authentication failed:", error);
@@ -671,7 +673,7 @@ export default function Home() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeletingAccount}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={performDeleteAccount}
+              onClick={attemptDeleteAccount}
               disabled={isDeletingAccount}
               className="bg-destructive hover:bg-destructive/90"
             >
@@ -725,3 +727,5 @@ export default function Home() {
     </>
   );
 }
+
+    
